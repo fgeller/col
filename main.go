@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bufio"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -10,9 +10,7 @@ import (
 )
 
 const (
-	chNUL     = 0x00
 	chSpace   = 0x20
-	chTab     = 0x09
 	chNewline = 0x0a
 )
 
@@ -20,23 +18,16 @@ type config struct {
 	cols         []int
 	padded       bool
 	outDelimiter []byte
-
-	debug bool
+	debug        bool
 }
 
 func bufs() ([]byte, [][]byte) {
-	in := make([]byte, 1024)
+	in := make([]byte, 4*1024)
 	cols := make([][]byte, 32)
 	for i := range cols {
 		cols[i] = make([]byte, 1024)
 	}
 	return in, cols
-}
-
-func debug(conf config, msg string, values ...interface{}) {
-	if conf.debug {
-		fmt.Fprintf(os.Stderr, msg+"\n", values...)
-	}
 }
 
 func col(in io.Reader, out io.Writer, conf config) {
@@ -50,9 +41,7 @@ func col(in io.Reader, out io.Writer, conf config) {
 read:
 	bufIdx = 0
 	readLen, err = in.Read(inBuf)
-	debug(conf, "readLen=%v err=%v", readLen, err)
 	if err != nil {
-		debug(conf, "err=%v  flushing!", err)
 		goto flush
 	}
 
@@ -66,7 +55,6 @@ loop:
 		bufIdx++
 		switch ch {
 		case chNewline:
-			debug(conf, "newline - flushing!")
 			goto flush
 
 		case chSpace:
@@ -89,7 +77,6 @@ loop:
 			spcs = 0
 		}
 
-		debug(conf, "add %x to col %v idx %v", ch, col, colIdx)
 		cols[col][colIdx] = ch
 		colIdx++
 	}
@@ -99,7 +86,6 @@ flush:
 		return
 	}
 	col, colIdx, spcs = 0, 0, 0
-	debug(conf, "Flushing")
 
 	for i, c := range conf.cols {
 		var length int
@@ -110,18 +96,16 @@ flush:
 				break
 			}
 		}
-		debug(conf, "Writing col %v [%s]", c, col[:length])
+
 		if _, err := out.Write(col[:length]); err != nil {
 			log.Fatal(err)
 		}
 
-		debug(conf, "Nulling col %v len %v", c, length)
 		for j := 0; j <= length; j++ {
 			col[j] = 0
 		}
 
 		if len(conf.cols)-1 > i {
-			debug(conf, "Writing out delim [%s]", conf.outDelimiter)
 			if _, err := out.Write(conf.outDelimiter); err != nil {
 				log.Fatal(err)
 			}
@@ -132,7 +116,6 @@ flush:
 		return
 	}
 
-	debug(conf, "Writing empty line")
 	if _, err := out.Write(emptyLine); err != nil {
 		log.Fatal(err)
 	}
@@ -142,13 +125,12 @@ flush:
 
 func main() {
 	pd := flag.Bool("padded", true, "Expect padded input.")
-	dbg := flag.Bool("debug", false, "Print debug output.")
 	oDelim := flag.String("out-delimiter", " ", "Output delimiter.")
+	inFile := flag.String("in", "", "Input file - default is stdin.")
 
 	flag.Parse()
 
 	conf := config{
-		debug:        *dbg,
 		padded:       *pd,
 		outDelimiter: []byte(*oDelim),
 	}
@@ -161,7 +143,15 @@ func main() {
 		conf.cols = append(conf.cols, i-1)
 	}
 
-	debug(conf, "config %#v", conf)
+	var err error
+	in := os.Stdin
+	if *inFile != "" {
+		if in, err = os.Open(*inFile); err != nil {
+			log.Fatal(err)
+		}
+	}
 
-	col(os.Stdin, os.Stdout, conf)
+	out := bufio.NewWriter(os.Stdout)
+	col(in, out, conf)
+	out.Flush()
 }
