@@ -15,7 +15,7 @@ const (
 )
 
 type config struct {
-	fields       []int // TODO s/fields/cols
+	cols         []int
 	padded       bool
 	outDelimiter []byte
 
@@ -33,39 +33,60 @@ func bufs() ([]byte, [][]byte) {
 
 func debug(conf config, msg string, values ...interface{}) {
 	if conf.debug {
-		fmt.Fprintf(os.Stderr, msg, values...)
+		fmt.Fprintf(os.Stderr, msg+"\n", values...)
 	}
 }
 
 func col(in io.Reader, out io.Writer, conf config) {
 	inBuf, cols := bufs()
-	var col, colIdx, spaceCount int
+	var read, col, colIdx, spaceCount int
+	var err error
+	emptyLine := []byte{chNewline}
+
 	flush := func() { // TODO: label?
-		for i, f := range conf.fields {
+		if col == 0 {
+			debug(conf, "Nothing to flush")
+			return
+		}
+		debug(conf, "Flushing")
+
+		for i, c := range conf.cols {
 			var length int
-			col := cols[f]
-			for j, c := range col {
-				if c == 0 {
+			col := cols[c]
+			for j, ch := range col {
+				if ch == 0 {
 					length = j
 					break
 				}
 			}
-			debug(conf, "WRITING COL %v [%s]\n", f, col[:length])
+			debug(conf, "Writing col %v [%s]", c, col[:length])
 			if _, err := out.Write(col[:length]); err != nil {
 				log.Fatal(err)
 			}
-			if len(conf.fields)-1 > i {
-				debug(conf, "WRITING OUT DELIM [%s]\n", conf.outDelimiter)
+			for j := 0; j <= length; j++ {
+				col[j] = 0
+			}
+
+			if len(conf.cols)-1 > i {
+				debug(conf, "Writing out delim [%s]", conf.outDelimiter)
 				if _, err := out.Write(conf.outDelimiter); err != nil {
 					log.Fatal(err)
 				}
 			}
 		}
+
+		if err != io.EOF {
+			debug(conf, "Writing empty line")
+			if _, err := out.Write(emptyLine); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
 	}
 
 	for {
-		n, err := in.Read(inBuf)
-		debug(conf, "READ N=%v err=%v.\n", n, err)
+		read, err = in.Read(inBuf)
+		debug(conf, "Read=%v err=%v", read, err)
 		if err == io.EOF {
 			flush()
 			return
@@ -74,12 +95,14 @@ func col(in io.Reader, out io.Writer, conf config) {
 			log.Fatal(err)
 		}
 
-		col = 0
-		colIdx = 0
-		spaceCount = 0
-		for i := 0; i < n; i++ {
+		for i := 0; i < read; i++ {
 			ch := inBuf[i]
 			switch {
+			case ch == chNewline:
+				flush()
+				col, colIdx, spaceCount = 0, 0, 0
+				continue
+
 			case ch == chSpace:
 				spaceCount++
 				endCol := colIdx > 0 && (!conf.padded || spaceCount > 1)
@@ -87,7 +110,6 @@ func col(in io.Reader, out io.Writer, conf config) {
 				switch {
 				case endCol:
 					if spaceCount > 1 {
-						debug(conf, "CLEARING TRAILING SPACE FOR COL %v IDX %v\n", col, colIdx)
 						cols[col][colIdx-1] = 0
 					}
 					colIdx = 0
@@ -101,7 +123,7 @@ func col(in io.Reader, out io.Writer, conf config) {
 				spaceCount = 0
 			}
 
-			debug(conf, "ADD %x TO COL %v IDX %v\n", ch, col, colIdx)
+			debug(conf, "add %x to col %v idx %v", ch, col, colIdx)
 			cols[col][colIdx] = ch
 			colIdx++
 		}

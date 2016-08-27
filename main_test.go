@@ -16,8 +16,26 @@ func TestCol(t *testing.T) {
 		{
 			name:     "baseline",
 			in:       "REPOSITORY                               TAG                 IMAGE ID            CREATED             SIZE",
-			conf:     config{debug: true, fields: []int{1, 3}, padded: true, outDelimiter: []byte(" ")},
+			conf:     config{debug: false, cols: []int{1, 3}, padded: true, outDelimiter: []byte(" ")},
 			expected: "TAG CREATED",
+		},
+		{
+			name: "trailing newline",
+			in: `REPOSITORY                               TAG                 IMAGE ID            CREATED             SIZE
+`,
+			conf: config{debug: true, cols: []int{1, 3}, padded: true, outDelimiter: []byte(" ")},
+			expected: `TAG CREATED
+`,
+		},
+		{
+			name: "multi-line",
+			in: `REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+example.com/hans    v1.2.3              049ca1a8121c        13 hours ago        18.35 MB
+example.com/gerd    v1.6.12             8c77bb6fe931        15 hours ago        14.84 MB`,
+			conf: config{debug: false, cols: []int{1, 3}, padded: true, outDelimiter: []byte(" ")},
+			expected: `TAG CREATED
+v1.2.3 13 hours ago
+v1.6.12 15 hours ago`,
 		},
 	}
 
