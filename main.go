@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"strconv"
 )
 
 const (
@@ -130,4 +132,28 @@ func col(in io.Reader, out io.Writer, conf config) {
 	}
 }
 
-func main() {}
+func main() {
+	pd := flag.Bool("padded", true, "Expect padded input.")
+	dbg := flag.Bool("debug", false, "Print debug output.")
+	oDelim := flag.String("out-delimiter", " ", "Output delimiter.")
+
+	flag.Parse()
+
+	conf := config{
+		debug:        *dbg,
+		padded:       *pd,
+		outDelimiter: []byte(*oDelim),
+	}
+
+	for _, c := range flag.Args() {
+		i, err := strconv.Atoi(c)
+		if err != nil {
+			log.Fatalf("Failed to interpret %#v as a number, err=%v", c, err)
+		}
+		conf.cols = append(conf.cols, i-1)
+	}
+
+	debug(conf, "config %#v", conf)
+
+	col(os.Stdin, os.Stdout, conf)
+}
