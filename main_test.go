@@ -23,7 +23,7 @@ func TestCol(t *testing.T) {
 			name: "trailing newline",
 			in: `REPOSITORY                               TAG                 IMAGE ID            CREATED             SIZE
 `,
-			conf: config{debug: true, cols: []int{1, 3}, padded: true, outDelimiter: []byte(" ")},
+			conf: config{debug: false, cols: []int{1, 3}, padded: true, outDelimiter: []byte(" ")},
 			expected: `TAG CREATED
 `,
 		},
@@ -36,6 +36,18 @@ example.com/gerd    v1.6.12             8c77bb6fe931        15 hours ago        
 			expected: `TAG CREATED
 v1.2.3 13 hours ago
 v1.6.12 15 hours ago`,
+		},
+		{
+			name:     "leading whitespace",
+			in:       " a b",
+			conf:     config{debug: false, cols: []int{0, 1}, padded: false, outDelimiter: []byte(" ")},
+			expected: "a b",
+		},
+		{
+			name:     "re-ordering",
+			in:       " a b",
+			conf:     config{debug: false, cols: []int{1, 0}, padded: false, outDelimiter: []byte(" ")},
+			expected: "b a",
 		},
 	}
 

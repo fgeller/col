@@ -41,95 +41,103 @@ func debug(conf config, msg string, values ...interface{}) {
 
 func col(in io.Reader, out io.Writer, conf config) {
 	inBuf, cols := bufs()
-	var read, col, colIdx, spaceCount int
-	var err error
-	emptyLine := []byte{chNewline}
+	var (
+		bufIdx, readLen, col, colIdx, spcs int
+		err                                error
+		emptyLine                          = []byte{chNewline}
+	)
 
-	flush := func() { // TODO: label?
-		if col == 0 {
-			debug(conf, "Nothing to flush")
-			return
-		}
-		debug(conf, "Flushing")
-
-		for i, c := range conf.cols {
-			var length int
-			col := cols[c]
-			for j, ch := range col {
-				if ch == 0 {
-					length = j
-					break
-				}
-			}
-			debug(conf, "Writing col %v [%s]", c, col[:length])
-			if _, err := out.Write(col[:length]); err != nil {
-				log.Fatal(err)
-			}
-			for j := 0; j <= length; j++ {
-				col[j] = 0
-			}
-
-			if len(conf.cols)-1 > i {
-				debug(conf, "Writing out delim [%s]", conf.outDelimiter)
-				if _, err := out.Write(conf.outDelimiter); err != nil {
-					log.Fatal(err)
-				}
-			}
-		}
-
-		if err != io.EOF {
-			debug(conf, "Writing empty line")
-			if _, err := out.Write(emptyLine); err != nil {
-				log.Fatal(err)
-			}
-			return
-		}
+read:
+	bufIdx = 0
+	readLen, err = in.Read(inBuf)
+	debug(conf, "readLen=%v err=%v", readLen, err)
+	if err != nil {
+		debug(conf, "err=%v  flushing!", err)
+		goto flush
 	}
 
+loop:
 	for {
-		read, err = in.Read(inBuf)
-		debug(conf, "Read=%v err=%v", read, err)
-		if err == io.EOF {
-			flush()
-			return
+		if bufIdx >= readLen {
+			goto read
 		}
-		if err != nil {
+
+		ch := inBuf[bufIdx]
+		bufIdx++
+		switch ch {
+		case chNewline:
+			debug(conf, "newline - flushing!")
+			goto flush
+
+		case chSpace:
+			spcs++
+			endCol := colIdx > 0 && (!conf.padded || spcs > 1)
+			betweenCol := colIdx == 0
+			switch {
+			case endCol:
+				if spcs > 1 {
+					cols[col][colIdx-1] = 0
+				}
+				colIdx = 0
+				col++
+				continue loop
+			case betweenCol:
+				continue loop
+			}
+
+		default:
+			spcs = 0
+		}
+
+		debug(conf, "add %x to col %v idx %v", ch, col, colIdx)
+		cols[col][colIdx] = ch
+		colIdx++
+	}
+
+flush:
+	if err != nil && (col|colIdx == 0) {
+		return
+	}
+	col, colIdx, spcs = 0, 0, 0
+	debug(conf, "Flushing")
+
+	for i, c := range conf.cols {
+		var length int
+		col := cols[c]
+		for j, ch := range col {
+			if ch == 0 {
+				length = j
+				break
+			}
+		}
+		debug(conf, "Writing col %v [%s]", c, col[:length])
+		if _, err := out.Write(col[:length]); err != nil {
 			log.Fatal(err)
 		}
 
-		for i := 0; i < read; i++ {
-			ch := inBuf[i]
-			switch {
-			case ch == chNewline:
-				flush()
-				col, colIdx, spaceCount = 0, 0, 0
-				continue
+		debug(conf, "Nulling col %v len %v", c, length)
+		for j := 0; j <= length; j++ {
+			col[j] = 0
+		}
 
-			case ch == chSpace:
-				spaceCount++
-				endCol := colIdx > 0 && (!conf.padded || spaceCount > 1)
-				betweenCol := colIdx == 0
-				switch {
-				case endCol:
-					if spaceCount > 1 {
-						cols[col][colIdx-1] = 0
-					}
-					colIdx = 0
-					col++
-					continue
-				case betweenCol:
-					continue
-				}
-
-			default:
-				spaceCount = 0
+		if len(conf.cols)-1 > i {
+			debug(conf, "Writing out delim [%s]", conf.outDelimiter)
+			if _, err := out.Write(conf.outDelimiter); err != nil {
+				log.Fatal(err)
 			}
-
-			debug(conf, "add %x to col %v idx %v", ch, col, colIdx)
-			cols[col][colIdx] = ch
-			colIdx++
 		}
 	}
+
+	if err != nil {
+		return
+	}
+
+	debug(conf, "Writing empty line")
+	if _, err := out.Write(emptyLine); err != nil {
+		log.Fatal(err)
+	}
+
+	goto loop
 }
 
 func main() {
